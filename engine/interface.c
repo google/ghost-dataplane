@@ -1,6 +1,15 @@
 #include "interface.h"
 #include "init.h"
 
+/*
+	Glossary
+
+	KNI ports: virtual ports exposed to the containers.
+	PHY ports: Ethernel physical ports.
+
+	KNI stands for Kernel Network Interface.
+	Each container will get its own KNI interface.
+*/
 
 /* Options for configuring ethernet port */
 static struct rte_eth_conf port_conf = {
@@ -21,10 +30,18 @@ static struct rte_eth_conf port_conf = {
     },
 };
 
-/* Initializes a single port */
+/* Initializes a ethernet port (physical) */
 void
 init_phy_port(uint16_t port)
 {
+	/*
+		Initialize the physical port for external communication.
+
+		Input:
+			- The DPDK port id.
+	
+	*/
+
 	int ret;
 	uint16_t nb_rxd = NB_RXD;
 	uint16_t nb_txd = NB_TXD;
@@ -67,8 +84,16 @@ init_phy_port(uint16_t port)
 void
 check_port_link_status(uint16_t portid)
 {
-#define CHECK_INTERVAL 100 /* 100ms */
-#define MAX_CHECK_TIME 90 /* 9s (90 * 100ms) in total */
+	/*
+		Checks the link status of the physical port.
+
+		Input:
+			- DPDK port id.
+
+	*/
+	
+	#define CHECK_INTERVAL 100 /* 100ms */
+	#define MAX_CHECK_TIME 90 /* 9s (90 * 100ms) in total */
 	uint8_t count, port_up, print_flag = 0;
 	struct rte_eth_link link;
 
@@ -119,6 +144,14 @@ check_port_link_status(uint16_t portid)
 static int
 kni_config_network_interface(uint16_t port_id, uint8_t if_up)
 {
+	/*
+		Called when the kernel runs ifup or ifdown.
+
+		Input:
+			- KNI port index (e.g., virtual port)
+			- if_up is true when the kernel command is if up else false.
+
+	*/
 	
 	RTE_LOG(INFO, APP, "Configure network interface of %d %s\n",
 					port_id, if_up ? "up" : "down");
@@ -134,6 +167,14 @@ kni_config_network_interface(uint16_t port_id, uint8_t if_up)
 static int
 kni_alloc(uint16_t nb_kni, uint16_t port_id)
 {
+	/*
+		Allocate KNI resources (virtual port)
+
+		Input:
+			- Number of virtual ports.
+			- The DPDK physical port id.
+
+	*/
 	uint8_t i;
 	struct rte_kni *kni;
 	struct rte_kni_conf conf;
@@ -141,6 +182,7 @@ kni_alloc(uint16_t nb_kni, uint16_t port_id)
 	// For now all KNIs will be running on 0.
 	uint16_t lcore_k = 0;
 	
+	// Iterate over the virtual ports to initialize.
 	for (i = 0; i < nb_kni; i++) {
 		/* Clear conf at first */
 		memset(&conf, 0, sizeof(conf));
@@ -152,16 +194,16 @@ kni_alloc(uint16_t nb_kni, uint16_t port_id)
 
 		struct rte_kni_ops ops;
 		if (i == 0) {
+			// The first port is considered the master and init separately.
 			memset(&ops, 0, sizeof(ops));
+			// TODO: set the PCIe address based on the physical port.
 			ops.port_id = i; //port_id
-			//ops.change_mtu = kni_change_mtu;
 			ops.config_network_if = kni_config_network_interface;
 
 			kni = rte_kni_alloc(pktmbuf_pool, &conf, &ops);
 		} else{
 			memset(&ops, 0, sizeof(ops));
 			ops.port_id = i;
-			//ops.change_mtu = kni_change_mtu;
 			ops.config_network_if = kni_config_network_interface;
 			kni = rte_kni_alloc(pktmbuf_pool, &conf, &ops);
 		}
@@ -181,17 +223,27 @@ kni_alloc(uint16_t nb_kni, uint16_t port_id)
 void
 init_kni_port(uint16_t port_id)
 {
+	/*
+		Initialize and allocated KNI resources.
+
+		Input:
+			- The port id of the physical port.
+	*/
 	uint16_t nb_kni = KNI_KTHREAD;
 
 	rte_kni_init(nb_kni);
 	kni_alloc(nb_kni, port_id);
-
 }
 
 int
 kni_free_kni(void)
 {
+	/*
+		Free KNI resources.
+
+	*/
 	uint8_t i;
+	// nb_kni refers to the number of KNI ports.
 	uint16_t nb_kni = KNI_KTHREAD;
 
 	for (i = 0; i < nb_kni; i++) {
@@ -202,3 +254,4 @@ kni_free_kni(void)
 
 	return 0;
 }
+

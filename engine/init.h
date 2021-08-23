@@ -9,7 +9,8 @@
 #ifndef _ENGINE_INIT_H_
 #define _ENGINE_INIT_H_
 
-#define UINT16MAX 0xFFFF
+#define UNKNOWN_PORT 0xFFFF
+#define ROUTING_TBL_SZ 0x10000
 
 
 #define RTE_IPV4(a, b, c, d) ((uint32_t)(((a) & 0xff) << 24) | \
@@ -52,10 +53,10 @@ struct kni_config {
 };
 
 struct queue_mgr {
-        struct packet_buf *tx;
+        struct packet_buf *tx; 
         uint16_t nb_active_kni;
         struct kni_config kni_cnf[KNI_KTHREAD];
-        uint16_t routing_table[KNI_KTHREAD];
+        uint16_t routing_table[ROUTING_TBL_SZ];
 };
 
 struct coprocessor_mgr {
@@ -66,20 +67,21 @@ struct coprocessor_mgr {
 };
 
 
+struct core_mapping {
+        uint16_t rx_lcore;
+        uint16_t coproc_lcore_first;
+        uint16_t coproc_lcore_last;
+};
 
 /* Mempool for mbufs */
 extern struct rte_mempool * pktmbuf_pool;
 extern struct rte_kni *kni_list[KNI_KTHREAD];
 extern struct queue_mgr tx_mgr;
 extern struct coprocessor_mgr nf[KNI_KTHREAD];
-
-
-
 extern rte_atomic32_t kni_stop;
 
 int init(void);
 int read_config(void);
-
 
 #define MP_NF_RXQ_NAME "MProc_Client_%u_RX"
 #define MP_NF_TXQ_NAME "MProc_Client_%u_TX"
@@ -106,6 +108,6 @@ get_tx_queue_name(unsigned id) {
         snprintf(buffer, sizeof(buffer) - 1, MP_NF_TXQ_NAME, id);
         return buffer;
 }
-
 #endif
+
 

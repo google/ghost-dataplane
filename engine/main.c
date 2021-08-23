@@ -24,9 +24,8 @@ signal_handler(int signum)
 							"going to stop\n");
 		rte_atomic32_inc(&kni_stop);
 		return;
-    }
+    	}
 }
-
 
 /* Initialise ports/queues etc. and start main loop on each core */
 int
@@ -35,6 +34,7 @@ main(int argc, char** argv)
 	int ret;
 	unsigned int n_lcore;
 	uint16_t i;
+	struct core_mapping rsrc;
 
 	/* Associate signal_hanlder function with USR signals */
 	signal(SIGRTMIN, signal_handler);
@@ -59,7 +59,7 @@ main(int argc, char** argv)
 			"Number of lcores (%d) != KNI_KTHREAD + 1 (%d)\n", \
 			 n_lcore, KNI_KTHREAD + 1);
 	}
-
+	
 	for(i = 0; i < n_lcore; i++){
 		// This works in the N2D machine.
 		if( rte_lcore_index(i) == -1){
@@ -67,16 +67,21 @@ main(int argc, char** argv)
 			"Unexpected index for for lcore (%d)\n", i);
 		}
 	}
+	
+	/*
+		- lcore id '#vports' is reserved for the Rx thread.
+		- lcore id [0 .. (#vports-1)] is reserved for coprocessor [0..(#vports-1)].
+
+	*/
+	rsrc.rx_lcore = KNI_KTHREAD;
+	rsrc.coproc_lcore_first = 0;
+	rsrc.coproc_lcore_last = KNI_KTHREAD - 1;
 
 	/* Launch per-lcore function on every lcore */
-	rte_eal_mp_remote_launch(main_loop, NULL, CALL_MASTER);
+	rte_eal_mp_remote_launch(main_loop, &rsrc, CALL_MASTER);
 	RTE_LCORE_FOREACH_SLAVE(i) {
 		if (rte_eal_wait_lcore(i) < 0)
 			return -1;
 	}
-
-
 	kni_free_kni();
-
-
 }
