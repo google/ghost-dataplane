@@ -5,13 +5,6 @@ import re
 # Global variables
 N_KNI_PORTS = 10
 
-# Get host port.
-get_port_ip = (lambda port_name : 
-				"ifconfig {} | grep \"inet \" | xargs | cut -d \' \' -f 2"
-				.format(port_name))
-get_port_ether = (lambda port_name : 
-				"ifconfig {} | grep \"ether \" | xargs | cut -d \' \' -f 2"
-				.format(port_name))
 
 # Get container port.
 get_container_port_ip = (lambda server_pid, port_name :
@@ -21,21 +14,51 @@ get_container_port_ether = (lambda server_pid, port_name :
 							"ip netns exec {} ifconfig {} | grep \"ether \" | xargs | cut -d \' \' -f 2"
 							.format(server_pid, port_name))
 
-def port_to_ip_mapping(index):
-	"""
-	A user defined mapping port_id (kni) to ipv4.
-	"""
-	return {"vEth0_{}".format(index) : "192.167.10.{}".format(index + 1)}
+def get_port_ip(port_name):
+        """
+        Get Host port IP.
+
+        Input:
+            - The name of the port (e.g, as shown in ifconfig)
+        """
+        return "ifconfig {} | grep \"inet \" | xargs | cut -d \' \' -f 2".format(port_name)
+
+def get_port_ether(port_name):
+        """
+        Get Host port Ethernet Address.
+
+        Input:
+            - The name of the port (e.g, as shown in ifconfig)
+        """
+        return "ifconfig {} | grep \"ether \" | xargs | cut -d \' \' -f 2".format(port_name)
+
+def get_container_port_ip(server_pid, port_name):
+        """
+        Get the container port IP.
+
+        Input:
+            - The container pid.
+            - The name of the port (e.g, as shown in ifconfig)
+        """
+        return "ip netns exec {} ifconfig {} | grep \"inet \" | xargs | cut -d \' \' -f 2".format(server_pid, port_name)
+
+def get_container_port_ether(server_pid, port_name):
+        """
+        Get the container port Ethernet Address.
+
+        Input:
+            - The container pid.
+            - The name of the port (e.g, as shown in ifconfig)
+        """
+        return "ip netns exec {} ifconfig {} | grep \"ether \" | xargs | cut -d \' \' -f 2".format(server_pid, port_name)
 
 
 def get_kni_ports():
 	"""
 	A KNI port is a list of string of format vEth0_%d where %d is the port index.
 	"""
-	kni_ports = os.popen('ifconfig | grep vEth0_ | cut -d\':\' -f1 ').read().strip().split('\n')
+	kni_ports = run_local_cmd('ifconfig | grep vEth0_ | cut -d\':\' -f1 ', get_output = True).split('\n')
 	return set([port for port in kni_ports if port != ''])
-
-
 
 def is_ipv4(string):
     try:
@@ -49,3 +72,23 @@ def is_mac(string):
 		return True
 	else:
 		return False
+
+
+def run_local_cmd(cmd, get_output = False):
+        """
+        Runs a local command. Optionally, return the cmd output.
+
+        Input:
+            - cmd: Command to run.
+            - get_output: whether to return the output of the cmd.
+
+        """
+        print( "Local cmd $ %s" % cmd )
+
+        if not get_output:
+            os.system( cmd )
+            return
+
+        output = os.popen( cmd ).read().strip()
+
+        return output
