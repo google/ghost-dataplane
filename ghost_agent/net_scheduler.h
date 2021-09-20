@@ -44,7 +44,7 @@ struct NetTask : public Task {
     YIELDING = 3,
     PENDING = 4,
   };
-
+  absl::Time start_submit = absl::InfiniteFuture();
   int run_state = BLOCKED;
   // The last CPU this task ran on.
   Cpu cpu{Cpu::UninitializedType::kUninitialized};

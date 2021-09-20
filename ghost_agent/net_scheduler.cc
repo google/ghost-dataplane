@@ -1,7 +1,10 @@
-#include "schedulers/netPreempt/net_scheduler.h"
+#include "schedulers/netPreemptDelay/net_scheduler.h"
 #include <vector>
 
+#include "cgroup_watcher.h"
 #include "absl/strings/match.h"
+#include "absl/random/distributions.h"
+#include "absl/random/random.h"
 
 namespace ghost {
 namespace {
@@ -223,7 +226,14 @@ void NetScheduler::CpuLeavingSwitchto(int cpu) {
 // TODO(oweisse): Infer task priority via something a bit more sophisticated
 // than the task's name.
 void NetScheduler::AdjustTaskPriority(NetTask& task) {
+  std::string task_name = cgroup_watcher::GetTaskName(task.gtid.tid());
+  absl::FPrintF(stderr, "Added task %d: %s\n", task.gtid.tid(), task_name);
+
   task.high_priority = true;
+  if (!absl::StrContains(task_name, "EngineThread")) { //EngineThread
+    absl::FPrintF(stderr, "Making the task low priority\n");
+    task.high_priority = false;
+  }
 }
 
 void NetScheduler::TaskNew(NetTask* task, const Message& msg) {
@@ -242,6 +252,8 @@ void NetScheduler::TaskNew(NetTask* task, const Message& msg) {
   cpu_set_t allowed_cpus;
   CPU_ZERO(&allowed_cpus);
   // TODO (ashwinch) Get affinity from payload in a few places including
+  // TaskNew, when user does sched_setaffinity() and when cgroup cpuset
+  // changes.
   CHECK(!sched_getaffinity(task->gtid.tid(), sizeof(allowed_cpus),
                            &allowed_cpus));
   CHECK_LE(CPU_COUNT(&allowed_cpus), MAX_CPUS);
@@ -325,6 +337,11 @@ void NetScheduler::TaskBlocked(NetTask* task, const Message& msg) {
     CHECK(task->queued());
     RemoveFromRunqueue(task, NetTask::BLOCKED);
   }
+
+  if (!payload->from_switchto) {
+    // Task must have been scheduled by the agent.
+    task->start_submit = absl::InfiniteFuture();
+  }
 }
 
 void NetScheduler::TaskPreempted(NetTask* task, const Message& msg) {
@@ -358,6 +375,10 @@ void NetScheduler::TaskPreempted(NetTask* task, const Message& msg) {
     Enqueue(task);
   } else {
     CHECK(task->queued());
+  }
+
+  if (!payload->from_switchto) {
+    task->start_submit = absl::InfiniteFuture();
   }
 }
 
@@ -393,6 +414,10 @@ void NetScheduler::TaskYield(NetTask* task, const Message& msg) {
     Yield(task);
   } else {
     CHECK(task->queued());
+  }
+
+  if (!payload->from_switchto) {
+    task->start_submit = absl::InfiniteFuture();
   }
 }
 
@@ -558,6 +583,7 @@ bool NetScheduler::SyncCpuState(const Cpu& cpu) {
     } else {
       Cpu uninit(Cpu::UninitializedType::kUninitialized);
       next->cpu = uninit;
+      next->start_submit = absl::InfiniteFuture();
       Enqueue(next);
       txn_completed = false;
       if (req->state() == GHOST_TXN_CPU_UNAVAIL) {
@@ -595,7 +621,7 @@ void NetScheduler::ReplaceExistingTask(const Cpu& cpu, NetTask *next) {
     cs->current = nullptr;
     Yield(next);
   }
-
+  next->start_submit = MonotonicNow();
   ++txn_total_;
 }
 
@@ -609,6 +635,7 @@ void NetScheduler::GlobalSchedule(const StatusWord& agent_sw,
   CpuList avail_cpus_low_priority = MachineTopology()->EmptyCpuList();
   CpuList assigned_cpus = MachineTopology()->EmptyCpuList();
   int unavail = 0;
+  absl::BitGen bitgen;
 
   // Construct a set of available CPUs to schedule on.
   for (const Cpu& cpu : cpus()) {
@@ -646,13 +673,19 @@ void NetScheduler::GlobalSchedule(const StatusWord& agent_sw,
     // sync'd with a previously pending transaction.
     if (!cs->current && !cs->in_switchto)
       avail_cpus.Set(cpu.id());
-    else if (cs->current && !cs->current->high_priority)
+//    else if (cs->current && !absl::StrContains(cgroup_watcher::GetTaskName(cs->current->gtid.tid()), "memcached") )//&& \
+		 //absl::Bernoulli(bitgen, 1.0/10.0) )//&& (MonotonicNow() - cs->current->start_submit) > absl::Microseconds(10))
       // If cs->current is not null, a ghost task is scheduled on that CPU.
       // If !current->high_priority - the ghost task currently loaded is low
       // priority. Therefore, we add this CPU to avail_cpus_low_priority.
       // These CPUs are considred available for high priority ghost tasks: If
       // we can't find a CPU from avail_cpus, we'll choose a CPU from
       // avail_cpus_low_priority and kick (preempt) the low priority ghost task.
+//      avail_cpus_low_priority.Set(cpu.id());
+    else if(cs->current && absl::StrContains(cgroup_watcher::GetTaskName(cs->current->gtid.tid()), "memcached") && \
+                 absl::Bernoulli(bitgen, 1.0/50.0) && (MonotonicNow() - cs->current->start_submit) > absl::Microseconds(300))
+      avail_cpus_low_priority.Set(cpu.id());
+    else if(cs->current && !absl::StrContains(cgroup_watcher::GetTaskName(cs->current->gtid.tid()), "memcached"))
       avail_cpus_low_priority.Set(cpu.id());
   }
 
@@ -663,12 +696,12 @@ void NetScheduler::GlobalSchedule(const StatusWord& agent_sw,
 
     // If we're trying to schedule a low priority task we can only use a cpu
     // from avail_cpus, NOT from avail_cpus_low_priority.
-    if (!next->high_priority && avail_cpus.Empty()) {
+//    if (!next->high_priority && avail_cpus.Empty()) {
       // The task should be placed in front of the queue
-      next->prio_boost = true;
-      Enqueue(next);
-      break;
-    }
+//      next->prio_boost = true;
+//      Enqueue(next);
+//      break;
+//    }
 
     CHECK(!next->pending());
 
@@ -699,7 +732,7 @@ void NetScheduler::GlobalSchedule(const StatusWord& agent_sw,
 
     // We couldn't find an available cpu. If the task is high priority, let's
     // see if we can preempt a lower priority task.
-    if (!cpu.valid() && next->high_priority && !avail_cpus_low_priority.Empty())
+    if (!cpu.valid() && !avail_cpus_low_priority.Empty())
     {
       cpu = PickNextCpu(avail_cpus_low_priority, *next, enforce_affinity_mask_);
       if (cpu.valid()) {
@@ -739,7 +772,7 @@ void NetScheduler::GlobalSchedule(const StatusWord& agent_sw,
       next->prio_boost = true;
       next->preempted = false;
     }
-
+    next->start_submit = MonotonicNow();
     ++txn_total_;
   }
 
