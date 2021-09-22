@@ -180,28 +180,27 @@ kni_alloc(uint16_t nb_kni, uint16_t port_id)
 	struct rte_kni_conf conf;
 	// TODO: Get the config from the network.
 	// For now all KNIs will be running on 0.
-	uint16_t lcore_k = 0;
 	
 	// Iterate over the virtual ports to initialize.
 	for (i = 0; i < nb_kni; i++) {
 		/* Clear conf at first */
 		memset(&conf, 0, sizeof(conf));
 		snprintf(conf.name, RTE_KNI_NAMESIZE, "vEth%u_%u", port_id, i);
-		conf.core_id = lcore_k;
 		conf.force_bind = 1;
 		conf.group_id = port_id;
 		conf.mbuf_size = MAX_PACKET_SZ;
 
 		struct rte_kni_ops ops;
 		if (i == 0) {
+			conf.core_id = i;
 			// The first port is considered the master and init separately.
 			memset(&ops, 0, sizeof(ops));
 			// TODO: set the PCIe address based on the physical port.
 			ops.port_id = i; //port_id
 			ops.config_network_if = kni_config_network_interface;
-
 			kni = rte_kni_alloc(pktmbuf_pool, &conf, &ops);
 		} else{
+			conf.core_id = i;
 			memset(&ops, 0, sizeof(ops));
 			ops.port_id = i;
 			ops.config_network_if = kni_config_network_interface;

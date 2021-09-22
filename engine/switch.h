@@ -2,6 +2,7 @@
 #include <rte_kni.h>
 #include <rte_cycles.h>
 #include <rte_lcore.h>
+#include "coprocessor.h"
 
 #define PRINT_DELAY 2
 

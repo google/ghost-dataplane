@@ -33,7 +33,7 @@
 /* How many objects (mbufs) to keep in per-lcore mempool cache */
 #define MEMPOOL_CACHE_SZ        PKT_BURST_SZ
 
-#define KNI_KTHREAD 10
+#define KNI_KTHREAD 5
 
 #define NF_QUEUE_RINGSIZE 16384
 
