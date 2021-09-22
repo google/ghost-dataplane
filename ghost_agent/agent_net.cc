@@ -89,13 +89,7 @@ int main(int argc, char* argv[]) {
   ghost::Notification exit;
 
   absl::InitializeSymbolizer(argv[0]);
-  // Need to set logtostderr before InitGoogle.  This disables the ThreadLogger
-  // in the CHECK() fail path.  See LogMessage::PrepareToDie.
-  //absl::SetFlag(&FLAGS_logtostderr, true);
   absl::ParseCommandLine(argc, argv);
-
-  //InitGoogleExceptChangeRootAndUser(argv[0], &argc, &argv, true);
-
   ghost::NetConfig config;
   ghost::ParseNetConfig(&config);
 
@@ -157,10 +151,8 @@ int main(int argc, char* argv[]) {
   //const std::string cwd = file_util::LinuxFileOps::GetCWD();
   const std::string cwd = fs::current_path();
 
-  // TODO(oweisse): Eventually we want a solution similar to SGS, where
-  // cpu.ghost_enabled is set to enable ghost. For now, we want to avoid making
-  // any modifications to USPS, we search for "/net" containers, and we add
-  // tasks with name "EngineThread*" to be scheduled with ghost
+  // We use a cgroup mygroup1 and move the DPDK threads to this cgroup.
+  // We also get all the docker threads by scraping the docker cgroup.
   absl::flat_hash_map<std::string, std::string> containers_to_tasks_rules;
   containers_to_tasks_rules["mygroup1"] = "*";
   containers_to_tasks_rules["docker"] = "memcached";

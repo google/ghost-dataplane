@@ -262,7 +262,7 @@ void NetScheduler::TaskNew(NetTask* task, const Message& msg) {
     if (CPU_ISSET(cpu.id(), &allowed_cpus))
       task->allowed_cpulist.Set(cpu.id());
   }
-  CHECK(task->allowed_cpulist.Size());
+  CHECK(!task->allowed_cpulist.Empty())
 
   AdjustTaskPriority(*task);
 
@@ -610,8 +610,6 @@ void NetScheduler::ReplaceExistingTask(const Cpu& cpu, NetTask *next) {
   prev->prio_boost = true;
   Enqueue(prev);
 
-  std::cout << "Replacing existing task\n";
-
   if (in_sync) {
     next->prio_boost = false;
     next->preempted = false;
@@ -673,15 +671,6 @@ void NetScheduler::GlobalSchedule(const StatusWord& agent_sw,
     // sync'd with a previously pending transaction.
     if (!cs->current && !cs->in_switchto)
       avail_cpus.Set(cpu.id());
-//    else if (cs->current && !absl::StrContains(cgroup_watcher::GetTaskName(cs->current->gtid.tid()), "memcached") )//&& \
-		 //absl::Bernoulli(bitgen, 1.0/10.0) )//&& (MonotonicNow() - cs->current->start_submit) > absl::Microseconds(10))
-      // If cs->current is not null, a ghost task is scheduled on that CPU.
-      // If !current->high_priority - the ghost task currently loaded is low
-      // priority. Therefore, we add this CPU to avail_cpus_low_priority.
-      // These CPUs are considred available for high priority ghost tasks: If
-      // we can't find a CPU from avail_cpus, we'll choose a CPU from
-      // avail_cpus_low_priority and kick (preempt) the low priority ghost task.
-//      avail_cpus_low_priority.Set(cpu.id());
     else if(cs->current && absl::StrContains(cgroup_watcher::GetTaskName(cs->current->gtid.tid()), "memcached") && \
                  absl::Bernoulli(bitgen, 1.0/50.0) && (MonotonicNow() - cs->current->start_submit) > absl::Microseconds(300))
       avail_cpus_low_priority.Set(cpu.id());
@@ -693,15 +682,6 @@ void NetScheduler::GlobalSchedule(const StatusWord& agent_sw,
     NetTask* next = Dequeue();
 
     if (!next) break;
-
-    // If we're trying to schedule a low priority task we can only use a cpu
-    // from avail_cpus, NOT from avail_cpus_low_priority.
-//    if (!next->high_priority && avail_cpus.Empty()) {
-      // The task should be placed in front of the queue
-//      next->prio_boost = true;
-//      Enqueue(next);
-//      break;
-//    }
 
     CHECK(!next->pending());
 

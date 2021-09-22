@@ -17,24 +17,8 @@
 #include <iostream>            
 #include <filesystem>          
 namespace fs = std::filesystem;
-
-
-
 namespace ghost {
 namespace cgroup_watcher {
-//std::string GetTaskName(pid_t tid) {
-//  const std::string comm_path = absl::StrFormat("/proc/%d/comm", tid);
-//  std::string contents;
-//  if (file::GetContents(comm_path, &contents, file::Defaults()).ok()) {
-//    absl::StripTrailingAsciiWhitespace(&contents);
-//    return contents;
-//  } else {
-    // Sometimes the path is inaccessible. This function does best effort to get
-    // a task name. We shouldn't crash the program if we fail. We therefore
-    // return an empty string instead.
-//    return "";
-//  }
-//}
 
 std::string GetTaskName(pid_t tid) {                                  
   const std::string comm_path = absl::StrFormat("/proc/%d/comm", tid);
@@ -44,8 +28,6 @@ std::string GetTaskName(pid_t tid) {
                std::istreambuf_iterator<char>());                     
   return contents;                                                    
 }                                                                     
-
-
 
 namespace {
 // Return `true` if the thread with thread identifier `tid` was moved to the
@@ -82,17 +64,12 @@ int MoveTasksToGhost(absl::string_view control_group_path,
                      absl::string_view name_pattern) {
   constexpr absl::string_view kTasksFileName = "tasks";
 
-  fs::path dir (control_group_path);            
+  fs::path dir(control_group_path);            
   fs::path file (kTasksFileName);           
   std::string tasks_path = dir / file;
 
-  //std::cout << "Moving CGROUP path " << control_group_path << " Task Pattern " << name_pattern << "\n";
-
   // If no tasks file, the container is probably on its way out.
-  //if (!file::Exists(tasks_path, file::Defaults()).ok())
-  //  return 0;
   if( !fs::exists(tasks_path) ){
-    //std::cout << "FIle " << tasks_path << " Does not exist\n";
     return 0;
   }
 
@@ -101,14 +78,9 @@ int MoveTasksToGhost(absl::string_view control_group_path,
   std::ifstream file_to_read(tasks_path);
   std::string line;
   while (std::getline(file_to_read, line)){
-//    std::cout << "Line : " << line << "\n";
-//  for (const std::string& line :
-//       FileLines(tasks_path, FileLineIterator::NO_LINEFEED)) {
     pid_t tid = std::stoi(line);
     std::string task_name = GetTaskName(tid);
 
-    // TODO(oweisse): We may want to use actual regex. For now, simpe substrings
-    // are enough.
     if (name_pattern == "*" || absl::StrContains(task_name, name_pattern)) {
       if (MoveToScheduler(tid, SCHED_GHOST)) {
         ++moved;
@@ -119,7 +91,7 @@ int MoveTasksToGhost(absl::string_view control_group_path,
 	std::string task_added = absl::StrFormat("Moved task %s pid=%d under %s\n",
                        				task_name, tid, control_group_path);
         std::ofstream ghost_log;
-        ghost_log.open("/tmp/muppet", std::ios_base::app);
+        ghost_log.open("/tmp/logging", std::ios_base::app);
         ghost_log << task_added;
         ghost_log.close();
 
@@ -145,8 +117,6 @@ int ScrapeDirectory(absl::string_view skipdir,
 
   int moved = 0;
   absl::string_view cgroup_name = path.substr(kCgroupPathPrefix.size());
-
-  //std::cout << "Cgroup Name: " << cgroup_name << "\n";
 
   if (containers_to_tasks_rules.contains(cgroup_name)) {
     const std::string& task_name_pattern =
