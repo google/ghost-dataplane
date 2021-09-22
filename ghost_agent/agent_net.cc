@@ -5,7 +5,8 @@
 #include <string>
 #include <vector>
 
-#include "schedulers/netPreempt/net_scheduler.h"
+#include "schedulers/netPreemptDelay/cgroup_watcher.h"
+#include "schedulers/netPreemptDelay/net_scheduler.h"
 #include "absl/debugging/symbolize.h"
 #include "absl/flags/parse.h"
 #include "lib/agent.h"
@@ -22,6 +23,8 @@ ABSL_FLAG(int32_t, globalcpu, -1,
           "Global cpu. If -1, then defaults to <firstcpu>)");
 ABSL_FLAG(std::string, ghost_cpus, "1-5", "cpulist");
 ABSL_FLAG(bool, enforce_affinity, true, "Enforce affinity requests");
+ABSL_FLAG(absl::Duration, cgroup_period, absl::Seconds(1),
+          "The period of cgroup scrapes");
 
 namespace ghost {
 
@@ -86,13 +89,7 @@ int main(int argc, char* argv[]) {
   ghost::Notification exit;
 
   absl::InitializeSymbolizer(argv[0]);
-  // Need to set logtostderr before InitGoogle.  This disables the ThreadLogger
-  // in the CHECK() fail path.  See LogMessage::PrepareToDie.
-  //absl::SetFlag(&FLAGS_logtostderr, true);
   absl::ParseCommandLine(argc, argv);
-
-  //InitGoogleExceptChangeRootAndUser(argv[0], &argc, &argv, true);
-
   ghost::NetConfig config;
   ghost::ParseNetConfig(&config);
 
@@ -148,6 +145,27 @@ int main(int argc, char* argv[]) {
     return false;
   });
 
+  const absl::Duration sleep_duration = absl::GetFlag(FLAGS_cgroup_period);
+  // The agent may have been started from a cgroup within a ghost-enabled cgroup
+  // hierarchy. In that case ScrapeCgroups needs to skip the agent's container.
+  //const std::string cwd = file_util::LinuxFileOps::GetCWD();
+  const std::string cwd = fs::current_path();
+
+  // We use a cgroup mygroup1 and move the DPDK threads to this cgroup.
+  // We also get all the docker threads by scraping the docker cgroup.
+  absl::flat_hash_map<std::string, std::string> containers_to_tasks_rules;
+  containers_to_tasks_rules["mygroup1"] = "*";
+  containers_to_tasks_rules["docker"] = "memcached";
+
+  // Keep scraping cgroups periodically until exit notification.
+  while (!exit.HasBeenNotified()) {
+    if (int moved = ghost::cgroup_watcher::ScrapeCgroups(cwd,
+                                                     containers_to_tasks_rules);
+        moved != 0) {
+      printf("Moved %d tasks into ghost\n", moved);
+    }
+    ghost::SleepFor(sleep_duration);
+  }
 
   delete uap;
 
