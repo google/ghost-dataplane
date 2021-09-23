@@ -41,6 +41,11 @@ print_stats(void)
 						kni_stats[i].parse_err,
 						kni_stats[i].tx_packets,
 						kni_stats[i].tx_dropped);
+		kni_stats[i].rx_packets = 0;
+		kni_stats[i].parse_err  = 0;
+		kni_stats[i].tx_packets = 0;
+		kni_stats[i].tx_dropped = 0;
+
 	}
 	printf("======  ============  ============  ============  ============\n");
 
@@ -57,6 +62,11 @@ print_stats(void)
 						nf_stats[i].rx_dropped,
 						nf_stats[i].tx_packets,
 						nf_stats[i].tx_dropped);
+		nf_stats[i].rx_packets = 0;
+		nf_stats[i].rx_dropped = 0;
+		nf_stats[i].tx_packets = 0;
+		nf_stats[i].tx_dropped = 0;
+
 	}
 	printf("======  ============  ============  ============  ============\n");
 
@@ -382,7 +392,11 @@ fastpath(uint32_t nb_kni, uint32_t nb_coproc){
 				rte_pktmbuf_free(pkts_burst[packet_idx]);
 				kni_stats[kni_idx].parse_err += 1;
 			}else{
+				#ifdef DISABLE_NF
+				enqueue_port(pkts_burst[packet_idx], kni_egress_port);
+				#else
 				enqueue_nf_rx(pkts_burst[packet_idx], kni_egress_port);
+				#endif
 			}
 		}
 
@@ -393,6 +407,7 @@ fastpath(uint32_t nb_kni, uint32_t nb_coproc){
 	// Periodically flush pkts in all temporary buffers.
 	flush_all(nb_kni, nb_coproc);
 
+	#ifndef DISABLE_NF
 	// Iterate over coprocessors.
 	for (coproc_idx = 0; coproc_idx < nb_coproc; coproc_idx++) {
 		//Receive packets from coprocess i and send it to vport i.
@@ -404,6 +419,7 @@ fastpath(uint32_t nb_kni, uint32_t nb_coproc){
 
 	// Periodically flush pkts in all temporary buffers.
 	flush_all(nb_kni, nb_coproc);
+	#endif
 
 }
 
@@ -419,17 +435,22 @@ coprocessor(void){
 
 	*/
 
-	uint16_t packet_idx, coproc_idx;
+	int ret;
+	uint16_t packet_idx;
+	uint32_t packets_dequeued;
 	struct rte_mbuf *pkts_burst[PKT_BURST_SZ];
 
 	// The lcore id acts as the coprocessor ID.
 	unsigned int lcore_id = rte_lcore_id();
 
 	// Dequeue a burst of packets from the Rx ring buffer.
-	packet_idx = rte_ring_dequeue_burst(nf[lcore_id].rx_q, (void **)pkts_burst, PKT_BURST_SZ, NULL);
-	for (coproc_idx = 0; coproc_idx < packet_idx; coproc_idx++) {
-		// TODO: Invoke NF processing.
-		enqueue_nf_tx(pkts_burst[coproc_idx], lcore_id);
+	packets_dequeued = rte_ring_dequeue_burst(nf[lcore_id].rx_q, (void **)pkts_burst, PKT_BURST_SZ, NULL);
+	for (packet_idx = 0; packet_idx < packets_dequeued; packet_idx++) {
+		ret = process_packet(pkts_burst[packet_idx]);
+		if( ret == 0)
+			enqueue_nf_tx(pkts_burst[packet_idx], lcore_id);
+		else
+			rte_pktmbuf_free(pkts_burst[packet_idx]);
 	}
 	
 	// Periodically flush the pkt buffers.
@@ -484,6 +505,10 @@ main_loop(__rte_unused void *arg)
 			}
 		}	
 	}else if(is_coproc){
+		#ifndef DISABLE_NF
+		if( coprocessor_setup() != 0)
+			rte_exit(EXIT_FAILURE, "Coprocessor setup failed.\n");
+
 		// Coprocessor thread.
 		while (1) {
 			// Check if the function is to be exited.
@@ -492,6 +517,9 @@ main_loop(__rte_unused void *arg)
 				break;
 			coprocessor();
 		}
+
+		coprocessor_teardown();
+		#endif
 	}
 	return 0;
 }

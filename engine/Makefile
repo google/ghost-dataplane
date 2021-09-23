@@ -11,7 +11,7 @@ include $(RTE_SDK)/mk/rte.vars.mk
 APP = engine
 
 # all source are stored in SRCS-y
-SRCS-y := main.c interface.c init.c switch.c
+SRCS-y := main.c interface.c init.c switch.c coprocessor.c nfs/firewall/firewall.c thirdparty/cJSON.c
 
 CFLAGS += -O3
 CFLAGS += $(WERROR_FLAGS)
