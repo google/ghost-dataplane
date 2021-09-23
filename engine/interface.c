@@ -191,8 +191,8 @@ kni_alloc(uint16_t nb_kni, uint16_t port_id)
 		conf.mbuf_size = MAX_PACKET_SZ;
 
 		struct rte_kni_ops ops;
+		conf.core_id = i;
 		if (i == 0) {
-			conf.core_id = i;
 			// The first port is considered the master and init separately.
 			memset(&ops, 0, sizeof(ops));
 			// TODO: set the PCIe address based on the physical port.
@@ -200,7 +200,6 @@ kni_alloc(uint16_t nb_kni, uint16_t port_id)
 			ops.config_network_if = kni_config_network_interface;
 			kni = rte_kni_alloc(pktmbuf_pool, &conf, &ops);
 		} else{
-			conf.core_id = i;
 			memset(&ops, 0, sizeof(ops));
 			ops.port_id = i;
 			ops.config_network_if = kni_config_network_interface;

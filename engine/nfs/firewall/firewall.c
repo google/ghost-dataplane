@@ -168,7 +168,7 @@ fw_packet_handler(struct rte_mbuf *pkt) {
         stats.pkt_total++;
 
         if (!fw_pkt_is_ipv4(pkt)) {
-                // Firewall is not ipv4.
+                // Packet is not ipv4.
                 stats.pkt_not_ipv4++;
                 action = FW_DROP;
         }
