@@ -209,7 +209,7 @@ kni_alloc(uint16_t nb_kni, uint16_t port_id)
 		struct rte_kni_ops ops;
 		conf.core_id = i;
 		if (i == 0) {
-			// The first port is considered the master and init separately.
+			// The first port is considered the leader and init separately.
 			memset(&ops, 0, sizeof(ops));
 			// TODO: set the PCIe address based on the physical port.
 			ops.port_id = i; //port_id
